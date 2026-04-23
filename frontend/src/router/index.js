@@ -60,6 +60,12 @@ const routes = [
         component: () => import("../views/AuditView.vue"),
         meta: { roles: ["admin"] },
       },
+      {
+        path: "admin/title-presets",
+        name: "admin-title-presets",
+        component: () => import("../views/TitlePresetsView.vue"),
+        meta: { roles: ["admin"] },
+      },
     ],
   },
 ];

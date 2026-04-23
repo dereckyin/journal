@@ -172,6 +172,39 @@ class PersonalCategory(db.Model, TimestampMixin):
         return {"id": self.id, "name": self.name, "color": self.color}
 
 
+class TitlePreset(db.Model, TimestampMixin):
+    """工作紀錄標題的下拉預設。依 kind 區分：
+    - project  : 當 entry 綁定在專案時共用的預設清單
+    - category : 當 entry 綁定在個人類別時共用的預設清單
+    """
+
+    __tablename__ = "title_presets"
+
+    KIND_PROJECT = "project"
+    KIND_CATEGORY = "category"
+    KINDS = (KIND_PROJECT, KIND_CATEGORY)
+
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(20), nullable=False, index=True)
+    name = db.Column(db.String(120), nullable=False)
+    sort_order = db.Column(db.Integer, nullable=False, default=0)
+
+    __table_args__ = (
+        CheckConstraint(
+            "kind in ('project','category')", name="ck_title_preset_kind"
+        ),
+        UniqueConstraint("kind", "name", name="uq_title_preset_kind_name"),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "kind": self.kind,
+            "name": self.name,
+            "sort_order": self.sort_order,
+        }
+
+
 class TimeEntry(db.Model, TimestampMixin):
     __tablename__ = "time_entries"
 

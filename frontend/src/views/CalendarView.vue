@@ -6,12 +6,18 @@ import dayGridPlugin from "@fullcalendar/daygrid";
 import interactionPlugin from "@fullcalendar/interaction";
 import { ElMessage } from "element-plus";
 
-import { categoriesApi, entriesApi, projectsApi } from "../api";
+import {
+  categoriesApi,
+  entriesApi,
+  projectsApi,
+  titlePresetsApi,
+} from "../api";
 import EntryDialog from "../components/EntryDialog.vue";
 
 const calendarRef = ref(null);
 const projects = ref([]);
 const categories = ref([]);
+const titlePresets = ref([]);
 const dialogVisible = ref(false);
 const currentEntry = ref(null);
 const defaultStart = ref(null);
@@ -138,12 +144,14 @@ function toLocalIso(d) {
 
 onMounted(async () => {
   try {
-    const [ps, cs] = await Promise.all([
+    const [ps, cs, tps] = await Promise.all([
       projectsApi.list(),
       categoriesApi.list(),
+      titlePresetsApi.list(),
     ]);
     projects.value = ps.filter((p) => p.status === "active");
     categories.value = cs;
+    titlePresets.value = tps;
   } catch (_) {}
 });
 </script>
@@ -177,6 +185,7 @@ onMounted(async () => {
       :entry="currentEntry"
       :projects="projects"
       :categories="categories"
+      :title-presets="titlePresets"
       :default-start="defaultStart"
       :default-end="defaultEnd"
       @saved="reload"

@@ -10,6 +10,7 @@ from .models import (
     Project,
     ProjectMember,
     TimeEntry,
+    TitlePreset,
     User,
 )
 
@@ -121,6 +122,18 @@ def seed() -> None:
         cat_admin = PersonalCategory(name="行政事務", color="#F56C6C")
         db.session.add_all([cat_meeting, cat_training, cat_admin])
         db.session.flush()
+
+        # Title presets — 工作紀錄標題的下拉預設
+        project_titles = ["會議", "開發", "測試", "客戶溝通", "規劃", "文件"]
+        category_titles = ["內部會議", "教育訓練", "行政事務", "請假", "出差"]
+        for i, n in enumerate(project_titles):
+            db.session.add(
+                TitlePreset(kind=TitlePreset.KIND_PROJECT, name=n, sort_order=i)
+            )
+        for i, n in enumerate(category_titles):
+            db.session.add(
+                TitlePreset(kind=TitlePreset.KIND_CATEGORY, name=n, sort_order=i)
+            )
 
         # Sample entries: this week, Mon 09-12 for emp1 on proj_a
         today = datetime.utcnow().date()

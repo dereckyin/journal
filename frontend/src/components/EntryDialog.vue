@@ -8,6 +8,7 @@ const props = defineProps({
   entry: { type: Object, default: null },
   projects: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },
+  titlePresets: { type: Array, default: () => [] },
   defaultStart: { type: [Date, String, null], default: null },
   defaultEnd: { type: [Date, String, null], default: null },
 });
@@ -35,7 +36,16 @@ const loading = ref(false);
 // 才會隨著類型 / 專案 / 類別變更自動覆寫，避免蓋掉使用者打字的內容。
 const lastAutoTitle = ref("");
 
+// 目前類型對應的標題預設清單（由 admin 集中維護，已依 sort_order 排好）
+const presetsByKind = computed(() =>
+  (props.titlePresets || []).filter((p) => p.kind === form.kind)
+);
+
 const suggestedTitle = computed(() => {
+  // 優先使用 admin 設定的預設清單第一筆，否則 fallback 到專案 / 類別名稱
+  if (presetsByKind.value.length > 0) {
+    return presetsByKind.value[0].name;
+  }
   if (form.kind === "project") {
     const p = props.projects.find((x) => x.id === form.project_id);
     return p ? p.name : "";
@@ -121,7 +131,8 @@ watch(
 const isEdit = computed(() => !!form.id);
 
 async function save() {
-  if (!form.title.trim()) {
+  const titleTrimmed = (form.title || "").trim();
+  if (!titleTrimmed) {
     ElMessage.warning("請輸入標題");
     return;
   }
@@ -146,7 +157,7 @@ async function save() {
   }
 
   const payload = {
-    title: form.title.trim(),
+    title: titleTrimmed,
     description: form.description,
     start_time: startIso,
     end_time: endIso,
@@ -238,16 +249,22 @@ async function remove() {
         </el-select>
       </el-form-item>
       <el-form-item label="標題">
-        <el-input
+        <el-select
           v-model="form.title"
-          :placeholder="suggestedTitle || '例：首頁切版'"
+          filterable
+          allow-create
+          default-first-option
+          clearable
+          :placeholder="suggestedTitle || '選擇或輸入標題'"
+          style="width: 100%"
         >
-          <template v-if="suggestedTitle && form.title !== suggestedTitle" #append>
-            <el-button @click="applySuggestion(true)" title="套用建議標題">
-              套用「{{ suggestedTitle }}」
-            </el-button>
-          </template>
-        </el-input>
+          <el-option
+            v-for="p in presetsByKind"
+            :key="p.id"
+            :label="p.name"
+            :value="p.name"
+          />
+        </el-select>
       </el-form-item>
       <el-form-item label="起始">
         <el-date-picker

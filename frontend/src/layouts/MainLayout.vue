@@ -24,6 +24,7 @@ const menu = computed(() => {
       { index: "/admin/users", label: "員工管理", icon: "🧑" },
       { index: "/admin/departments", label: "部門管理", icon: "🏢" },
       { index: "/admin/categories", label: "個人類別", icon: "🏷" },
+      { index: "/admin/title-presets", label: "標題預設", icon: "🏷" },
       { index: "/admin/audit", label: "安全稽核", icon: "🛡" }
     );
   }

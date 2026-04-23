@@ -72,3 +72,15 @@ export const auditApi = {
   list: (params) =>
     client.get("/audit-logs", { params }).then((r) => r.data),
 };
+
+export const titlePresetsApi = {
+  list: (kind) =>
+    client
+      .get("/title-presets", { params: kind ? { kind } : {} })
+      .then((r) => r.data),
+  create: (payload) =>
+    client.post("/title-presets", payload).then((r) => r.data),
+  update: (id, payload) =>
+    client.patch(`/title-presets/${id}`, payload).then((r) => r.data),
+  remove: (id) => client.delete(`/title-presets/${id}`).then((r) => r.data),
+};
