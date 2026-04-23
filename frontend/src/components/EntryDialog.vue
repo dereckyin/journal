@@ -31,6 +31,37 @@ const form = reactive({
 
 const loading = ref(false);
 
+// 記住上一次「自動產生」的標題內容；只有當使用者沒改過（或還是空的）時，
+// 才會隨著類型 / 專案 / 類別變更自動覆寫，避免蓋掉使用者打字的內容。
+const lastAutoTitle = ref("");
+
+const suggestedTitle = computed(() => {
+  if (form.kind === "project") {
+    const p = props.projects.find((x) => x.id === form.project_id);
+    return p ? p.name : "";
+  }
+  const c = props.categories.find((x) => x.id === form.category_id);
+  return c ? c.name : "";
+});
+
+function applySuggestion(force = false) {
+  const next = suggestedTitle.value;
+  if (!next) return;
+  const current = (form.title || "").trim();
+  if (force || !current || current === lastAutoTitle.value) {
+    form.title = next;
+    lastAutoTitle.value = next;
+  }
+}
+
+// 類型切換 / 專案 or 類別切換 → 嘗試自動帶入標題
+watch(
+  () => [form.kind, form.project_id, form.category_id],
+  () => {
+    applySuggestion(false);
+  }
+);
+
 function toLocalIso(v) {
   if (v === null || v === undefined || v === "") return "";
   let d;
@@ -69,6 +100,8 @@ watch(
         form.category_id = props.entry.category_id;
         form.project_id = null;
       }
+      // 編輯時不自動蓋標題；但若標題恰好與目前選項同名，仍允許之後隨選單自動更新
+      lastAutoTitle.value = form.title || "";
     } else {
       form.id = null;
       form.title = "";
@@ -78,6 +111,9 @@ watch(
       form.category_id = null;
       form.start_time = props.defaultStart ? new Date(props.defaultStart) : null;
       form.end_time = props.defaultEnd ? new Date(props.defaultEnd) : null;
+      lastAutoTitle.value = "";
+      // 讓初始選中的專案立刻帶入標題建議
+      applySuggestion(false);
     }
   }
 );
@@ -202,7 +238,16 @@ async function remove() {
         </el-select>
       </el-form-item>
       <el-form-item label="標題">
-        <el-input v-model="form.title" placeholder="例：首頁切版" />
+        <el-input
+          v-model="form.title"
+          :placeholder="suggestedTitle || '例：首頁切版'"
+        >
+          <template v-if="suggestedTitle && form.title !== suggestedTitle" #append>
+            <el-button @click="applySuggestion(true)" title="套用建議標題">
+              套用「{{ suggestedTitle }}」
+            </el-button>
+          </template>
+        </el-input>
       </el-form-item>
       <el-form-item label="起始">
         <el-date-picker
