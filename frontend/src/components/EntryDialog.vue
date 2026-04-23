@@ -32,8 +32,17 @@ const form = reactive({
 const loading = ref(false);
 
 function toLocalIso(v) {
-  if (!v) return "";
-  const d = v instanceof Date ? v : new Date(v);
+  if (v === null || v === undefined || v === "") return "";
+  let d;
+  if (v instanceof Date) d = v;
+  else if (typeof v === "number") d = new Date(v);
+  else if (typeof v === "string") {
+    // el-date-picker + value-format="x" 會把 v-model 寫成「數字字串」(毫秒)
+    // 直接 new Date("1714020000000") 會回 Invalid Date，需先轉 Number
+    const num = Number(v);
+    d = Number.isFinite(num) && /^\d+$/.test(v) ? new Date(num) : new Date(v);
+  } else d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
   const pad = (n) => String(n).padStart(2, "0");
   return (
     `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}` +
@@ -93,11 +102,18 @@ async function save() {
     return;
   }
 
+  const startIso = toLocalIso(form.start_time);
+  const endIso = toLocalIso(form.end_time);
+  if (!startIso || !endIso) {
+    ElMessage.warning("請選擇有效的起訖時間");
+    return;
+  }
+
   const payload = {
     title: form.title.trim(),
     description: form.description,
-    start_time: toLocalIso(form.start_time),
-    end_time: toLocalIso(form.end_time),
+    start_time: startIso,
+    end_time: endIso,
     project_id: form.kind === "project" ? form.project_id : null,
     category_id: form.kind === "category" ? form.category_id : null,
   };
