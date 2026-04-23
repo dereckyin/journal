@@ -12,14 +12,19 @@ const menu = computed(() => {
     { index: "/reports", label: "報表", icon: "📊" },
   ];
   if (auth.isManager || auth.isAdmin) {
-    items.splice(1, 0, { index: "/team", label: "部門週曆", icon: "👥" });
+    items.splice(1, 0, {
+      index: "/team",
+      label: auth.isAdmin ? "全員週曆" : "部門週曆",
+      icon: "👥",
+    });
   }
   if (auth.isAdmin) {
     items.push(
       { index: "/admin/projects", label: "專案管理", icon: "📂" },
       { index: "/admin/users", label: "員工管理", icon: "🧑" },
       { index: "/admin/departments", label: "部門管理", icon: "🏢" },
-      { index: "/admin/categories", label: "個人類別", icon: "🏷" }
+      { index: "/admin/categories", label: "個人類別", icon: "🏷" },
+      { index: "/admin/audit", label: "安全稽核", icon: "🛡" }
     );
   }
   return items;

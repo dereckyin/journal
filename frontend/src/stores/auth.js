@@ -1,9 +1,10 @@
 import { defineStore } from "pinia";
-import { authApi } from "../api";
+import { authApi, tokenStore } from "../api";
 
 export const useAuthStore = defineStore("auth", {
   state: () => ({
-    token: localStorage.getItem("token") || "",
+    token: tokenStore.getAccess(),
+    refreshToken: tokenStore.getRefresh(),
     user: null,
   }),
   getters: {
@@ -17,8 +18,10 @@ export const useAuthStore = defineStore("auth", {
     async login(username, password) {
       const data = await authApi.login(username, password);
       this.token = data.access_token;
+      this.refreshToken = data.refresh_token || "";
       this.user = data.user;
-      localStorage.setItem("token", data.access_token);
+      tokenStore.setAccess(data.access_token);
+      tokenStore.setRefresh(data.refresh_token || "");
       return data;
     },
     async fetchMe() {
@@ -33,8 +36,9 @@ export const useAuthStore = defineStore("auth", {
         // ignore
       }
       this.token = "";
+      this.refreshToken = "";
       this.user = null;
-      localStorage.removeItem("token");
+      tokenStore.clear();
     },
   },
 });

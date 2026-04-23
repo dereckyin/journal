@@ -1,7 +1,7 @@
 from flask import Flask, jsonify
 
 from .config import Config
-from .extensions import cors, db, jwt, migrate
+from .extensions import cors, db, jwt, limiter, migrate
 
 
 def create_app(config_class: type = Config) -> Flask:
@@ -11,11 +11,14 @@ def create_app(config_class: type = Config) -> Flask:
     db.init_app(app)
     migrate.init_app(app, db)
     jwt.init_app(app)
+    # 使用 Bearer JWT（Authorization header），不依賴 cookie → 不需 credentials / CSRF
     cors.init_app(
         app,
         resources={r"/api/*": {"origins": app.config["CORS_ORIGINS"]}},
-        supports_credentials=True,
+        supports_credentials=False,
+        allow_headers=["Content-Type", "Authorization"],
     )
+    limiter.init_app(app)
 
     from . import models  # noqa: F401  (ensure models are registered)
 
@@ -26,6 +29,7 @@ def create_app(config_class: type = Config) -> Flask:
     from .routes.categories import bp as categories_bp
     from .routes.entries import bp as entries_bp
     from .routes.reports import bp as reports_bp
+    from .routes.audit import bp as audit_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(users_bp, url_prefix="/api/users")
@@ -34,6 +38,7 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(categories_bp, url_prefix="/api/categories")
     app.register_blueprint(entries_bp, url_prefix="/api/entries")
     app.register_blueprint(reports_bp, url_prefix="/api/reports")
+    app.register_blueprint(audit_bp, url_prefix="/api/audit-logs")
 
     @app.get("/api/health")
     def health():
@@ -62,5 +67,10 @@ def create_app(config_class: type = Config) -> Flask:
     @jwt.expired_token_loader
     def _expired(_header, _payload):
         return jsonify(error="token expired"), 401
+
+    @app.errorhandler(429)
+    def rate_limited(err):
+        desc = getattr(err, "description", "too many requests")
+        return jsonify(error=f"rate limit exceeded: {desc}"), 429
 
     return app

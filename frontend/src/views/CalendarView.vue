@@ -17,6 +17,29 @@ const currentEntry = ref(null);
 const defaultStart = ref(null);
 const defaultEnd = ref(null);
 
+function fmtRange(start, end) {
+  const pad = (n) => String(n).padStart(2, "0");
+  const d = (x) =>
+    `${x.getFullYear()}/${pad(x.getMonth() + 1)}/${pad(x.getDate())}`;
+  const t = (x) => `${pad(x.getHours())}:${pad(x.getMinutes())}`;
+  if (!start) return "";
+  const s = new Date(start);
+  const e = end ? new Date(end) : null;
+  if (!e) return `${d(s)} ${t(s)}`;
+  if (d(s) === d(e)) return `${d(s)} ${t(s)} - ${t(e)}`;
+  return `${d(s)} ${t(s)} - ${d(e)} ${t(e)}`;
+}
+
+function buildTooltip(e) {
+  const lines = [];
+  lines.push(`📌 ${e.title || ""}`);
+  if (e.project_name) lines.push(`📂 專案：${e.project_name}`);
+  else if (e.category_name) lines.push(`🏷 類別：${e.category_name}`);
+  lines.push(`🕒 ${fmtRange(e.start_time, e.end_time)}（${e.hours ?? 0} h）`);
+  if (e.description) lines.push(`📝 ${e.description}`);
+  return lines.join("\n");
+}
+
 const options = shallowRef({
   plugins: [timeGridPlugin, dayGridPlugin, interactionPlugin],
   initialView: "timeGridWeek",
@@ -47,6 +70,9 @@ const options = shallowRef({
   eventClick: onEventClick,
   eventDrop: onEventChange,
   eventResize: onEventChange,
+  eventDidMount(info) {
+    info.el.setAttribute("title", buildTooltip(info.event.extendedProps));
+  },
 });
 
 async function fetchEvents(info, success, failure) {

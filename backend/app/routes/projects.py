@@ -2,6 +2,7 @@ from datetime import date
 
 from flask import Blueprint, jsonify, request
 
+from .. import audit
 from ..extensions import db
 from ..models import Project, ProjectMember, User
 from ..permissions import current_user, role_required
@@ -30,7 +31,9 @@ def list_projects():
         )
 
     projects = q.order_by(Project.status.asc(), Project.code.asc()).all()
-    return jsonify([p.to_dict() for p in projects])
+    # 預算為財務敏感資訊，僅 admin 可見
+    include_budget = user.role == User.ROLE_ADMIN
+    return jsonify([p.to_dict(include_budget=include_budget) for p in projects])
 
 
 @bp.post("")
@@ -63,6 +66,13 @@ def create_project():
         db.session.add(ProjectMember(project_id=project.id, user_id=int(uid)))
 
     db.session.commit()
+    audit.log(
+        "projects.create",
+        actor=user,
+        target_type="project",
+        target_id=project.id,
+        meta={"code": project.code, "name": project.name, "budget": float(project.budget or 0)},
+    )
     return jsonify(project.to_dict()), 201
 
 
@@ -94,6 +104,13 @@ def update_project(project_id: int):
             db.session.add(ProjectMember(project_id=project.id, user_id=int(uid)))
 
     db.session.commit()
+    audit.log(
+        "projects.update",
+        actor=current_user(),
+        target_type="project",
+        target_id=project.id,
+        meta={"fields": list(data.keys())},
+    )
     return jsonify(project.to_dict())
 
 
@@ -103,4 +120,11 @@ def delete_project(project_id: int):
     project = Project.query.get_or_404(project_id)
     project.status = Project.STATUS_CLOSED
     db.session.commit()
+    audit.log(
+        "projects.close",
+        actor=current_user(),
+        target_type="project",
+        target_id=project.id,
+        meta={"code": project.code, "name": project.name},
+    )
     return jsonify(ok=True)

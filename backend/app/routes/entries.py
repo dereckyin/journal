@@ -1,8 +1,8 @@
 from datetime import datetime, timedelta
 
 from flask import Blueprint, jsonify, request
-from sqlalchemy import and_, or_
 
+from .. import audit
 from ..extensions import db
 from ..models import PersonalCategory, Project, TimeEntry, User
 from ..permissions import current_user, role_required
@@ -47,6 +47,8 @@ def list_entries():
     to_str = request.args.get("to")
     user_id_param = request.args.get("user_id", type=int)
     project_id = request.args.get("project_id", type=int)
+    category_id = request.args.get("category_id", type=int)
+    scope = request.args.get("scope")
 
     q = TimeEntry.query
 
@@ -56,20 +58,30 @@ def list_entries():
         q = q.filter(TimeEntry.start_time < _parse_dt(to_str))
     if project_id:
         q = q.filter(TimeEntry.project_id == project_id)
-
-    target_user_id = user_id_param or user.id
+    if category_id:
+        q = q.filter(TimeEntry.category_id == category_id)
 
     if user.role == User.ROLE_EMPLOYEE:
+        # 防禦性：employee 若試圖傳 user_id 而且不是自己，明確 403（不 silently 回傳自己的）
+        if user_id_param and user_id_param != user.id:
+            return jsonify(error="forbidden: cannot read other users"), 403
         q = q.filter(TimeEntry.user_id == user.id)
     elif user.role == User.ROLE_MANAGER:
-        if user_id_param:
+        # manager 沒部門 → 只能看自己，禁止跨部門窺視
+        if user.department_id is None:
+            if user_id_param and user_id_param != user.id:
+                return jsonify(error="forbidden: manager without department"), 403
+            q = q.filter(TimeEntry.user_id == user.id)
+        elif user_id_param:
             target = User.query.get(user_id_param)
-            if not target or target.department_id != user.department_id:
+            if (
+                not target
+                or target.department_id is None
+                or target.department_id != user.department_id
+            ):
                 return jsonify(error="forbidden: different department"), 403
             q = q.filter(TimeEntry.user_id == user_id_param)
         else:
-            # default: manager sees own entries; use ?scope=team for whole department
-            scope = request.args.get("scope")
             if scope == "team":
                 member_ids = [u.id for u in user.department.members] if user.department else [user.id]
                 q = q.filter(TimeEntry.user_id.in_(member_ids))
@@ -78,8 +90,34 @@ def list_entries():
     else:  # admin
         if user_id_param:
             q = q.filter(TimeEntry.user_id == user_id_param)
+        elif scope != "team":
+            # 與 manager 一致：admin 預設只看自己，須帶 ?scope=team 才回傳全公司
+            q = q.filter(TimeEntry.user_id == user.id)
 
     entries = q.order_by(TimeEntry.start_time.asc()).all()
+
+    # 稽核：admin / manager 明確指定他人 user_id 或用 team scope → 記錄一筆檢視
+    if user.role != User.ROLE_EMPLOYEE:
+        is_viewing_others = (
+            (user_id_param and user_id_param != user.id)
+            or scope == "team"
+        )
+        if is_viewing_others:
+            audit.log(
+                "entries.view_others",
+                actor=user,
+                target_type="user" if user_id_param else "scope",
+                target_id=user_id_param,
+                meta={
+                    "scope": scope,
+                    "from": from_str,
+                    "to": to_str,
+                    "project_id": project_id,
+                    "category_id": category_id,
+                    "count": len(entries),
+                },
+            )
+
     return jsonify([e.to_dict() for e in entries])
 
 
@@ -107,9 +145,18 @@ def create_entry():
     if not title:
         return jsonify(error="title required"), 400
 
-    target_user_id = data.get("user_id") or user.id
+    raw_uid = data.get("user_id")
+    try:
+        target_user_id = int(raw_uid) if raw_uid not in (None, "", 0) else user.id
+    except (TypeError, ValueError):
+        return jsonify(error="invalid user_id"), 400
     if target_user_id != user.id and user.role != User.ROLE_ADMIN:
         return jsonify(error="forbidden: cannot log for another user"), 403
+    if target_user_id != user.id:
+        # admin 代填時，確認目標使用者存在且有效
+        target = User.query.filter_by(id=target_user_id, is_active=True).first()
+        if not target:
+            return jsonify(error="target user not found or inactive"), 404
 
     if project_id:
         if not Project.query.get(project_id):
@@ -136,6 +183,20 @@ def create_entry():
     )
     db.session.add(entry)
     db.session.commit()
+    if target_user_id != user.id:
+        audit.log(
+            "entries.create_for_other",
+            actor=user,
+            target_type="entry",
+            target_id=entry.id,
+            meta={
+                "for_user_id": target_user_id,
+                "project_id": project_id,
+                "category_id": category_id,
+                "start": start.isoformat(),
+                "end": end.isoformat(),
+            },
+        )
     return jsonify(entry.to_dict()), 201
 
 
@@ -192,6 +253,14 @@ def update_entry(entry_id: int):
         entry.description = data["description"]
 
     db.session.commit()
+    if entry.user_id != user.id:
+        audit.log(
+            "entries.update_other",
+            actor=user,
+            target_type="entry",
+            target_id=entry.id,
+            meta={"for_user_id": entry.user_id},
+        )
     return jsonify(entry.to_dict())
 
 
@@ -202,6 +271,15 @@ def delete_entry(entry_id: int):
     entry = TimeEntry.query.get_or_404(entry_id)
     if not _can_edit(user, entry):
         return jsonify(error="forbidden: cannot delete this entry"), 403
+    owner_id = entry.user_id
     db.session.delete(entry)
     db.session.commit()
+    if owner_id != user.id:
+        audit.log(
+            "entries.delete_other",
+            actor=user,
+            target_type="entry",
+            target_id=entry_id,
+            meta={"for_user_id": owner_id},
+        )
     return jsonify(ok=True)

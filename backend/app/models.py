@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from decimal import Decimal
 
@@ -129,19 +130,21 @@ class Project(db.Model, TimestampMixin):
     )
     entries = db.relationship("TimeEntry", back_populates="project")
 
-    def to_dict(self) -> dict:
-        return {
+    def to_dict(self, include_budget: bool = True) -> dict:
+        data = {
             "id": self.id,
             "code": self.code,
             "name": self.name,
             "description": self.description,
-            "budget": float(self.budget or 0),
             "start_date": self.start_date.isoformat() if self.start_date else None,
             "end_date": self.end_date.isoformat() if self.end_date else None,
             "status": self.status,
             "color": self.color,
             "member_ids": [m.user_id for m in self.members],
         }
+        if include_budget:
+            data["budget"] = float(self.budget or 0)
+        return data
 
 
 class ProjectMember(db.Model):
@@ -227,4 +230,61 @@ class TimeEntry(db.Model, TimestampMixin):
             "start_time": self.start_time.isoformat(),
             "end_time": self.end_time.isoformat(),
             "hours": self.hours,
+        }
+
+
+class AuditLog(db.Model):
+    """不可竄改的稽核紀錄；只能新增、不允許更新/刪除。
+
+    action 範例:
+        auth.login_success / auth.login_failed / auth.logout / auth.refresh
+        users.create / users.update / users.delete / users.role_changed / users.rate_changed
+        entries.create_for_other / entries.update_other / entries.delete_other
+        reports.view_user_hours_other / reports.view_department_summary / reports.view_project_cost
+        projects.create / projects.update / projects.close
+        departments.create / departments.update / departments.delete
+        categories.create / categories.update / categories.delete
+    """
+
+    __tablename__ = "audit_logs"
+
+    id = db.Column(db.Integer, primary_key=True)
+    created_at = db.Column(
+        db.DateTime, default=datetime.utcnow, nullable=False, index=True
+    )
+    actor_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    actor_username = db.Column(db.String(120), nullable=True)  # 保留歷史姓名，即使 user 被刪
+    action = db.Column(db.String(80), nullable=False, index=True)
+    target_type = db.Column(db.String(40), nullable=True)
+    target_id = db.Column(db.Integer, nullable=True)
+    meta_json = db.Column(db.Text, nullable=True)  # JSON encoded dict
+    ip = db.Column(db.String(64), nullable=True)
+    user_agent = db.Column(db.String(255), nullable=True)
+
+    actor = db.relationship("User", foreign_keys=[actor_id])
+
+    @property
+    def meta(self) -> dict:
+        if not self.meta_json:
+            return {}
+        try:
+            return json.loads(self.meta_json)
+        except Exception:
+            return {}
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "created_at": self.created_at.isoformat(),
+            "actor_id": self.actor_id,
+            "actor_username": self.actor_username,
+            "actor_name": self.actor.full_name if self.actor else None,
+            "action": self.action,
+            "target_type": self.target_type,
+            "target_id": self.target_id,
+            "meta": self.meta,
+            "ip": self.ip,
+            "user_agent": self.user_agent,
         }

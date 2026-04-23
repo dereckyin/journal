@@ -1,10 +1,13 @@
-import client from "./client";
+import client, { tokenStore } from "./client";
+
+export { tokenStore };
 
 export const authApi = {
   login: (username, password) =>
     client.post("/auth/login", { username, password }).then((r) => r.data),
   me: () => client.get("/auth/me").then((r) => r.data),
   logout: () => client.post("/auth/logout").then((r) => r.data),
+  refresh: () => client.post("/auth/refresh").then((r) => r.data),
 };
 
 export const usersApi = {
@@ -63,4 +66,9 @@ export const reportsApi = {
     client.get("/reports/user-hours", { params }).then((r) => r.data),
   departmentSummary: (params) =>
     client.get("/reports/department-summary", { params }).then((r) => r.data),
+};
+
+export const auditApi = {
+  list: (params) =>
+    client.get("/audit-logs", { params }).then((r) => r.data),
 };

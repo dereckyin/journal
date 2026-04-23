@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request
 
+from .. import audit
 from ..extensions import db
 from ..models import Department, User
-from ..permissions import role_required
+from ..permissions import current_user, role_required
 
 bp = Blueprint("departments", __name__)
 
@@ -26,6 +27,13 @@ def create_department():
     dept = Department(name=name, manager_id=data.get("manager_id"))
     db.session.add(dept)
     db.session.commit()
+    audit.log(
+        "departments.create",
+        actor=current_user(),
+        target_type="department",
+        target_id=dept.id,
+        meta={"name": dept.name},
+    )
     return jsonify(dept.to_dict()), 201
 
 
@@ -39,6 +47,13 @@ def update_department(dept_id: int):
     if "manager_id" in data:
         dept.manager_id = data["manager_id"]
     db.session.commit()
+    audit.log(
+        "departments.update",
+        actor=current_user(),
+        target_type="department",
+        target_id=dept.id,
+        meta={"fields": list(data.keys())},
+    )
     return jsonify(dept.to_dict())
 
 
@@ -48,6 +63,14 @@ def delete_department(dept_id: int):
     dept = Department.query.get_or_404(dept_id)
     if dept.members:
         return jsonify(error="department has members, reassign first"), 400
+    dept_name = dept.name
     db.session.delete(dept)
     db.session.commit()
+    audit.log(
+        "departments.delete",
+        actor=current_user(),
+        target_type="department",
+        target_id=dept_id,
+        meta={"name": dept_name},
+    )
     return jsonify(ok=True)

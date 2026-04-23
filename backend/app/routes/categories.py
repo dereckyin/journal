@@ -1,8 +1,9 @@
 from flask import Blueprint, jsonify, request
 
+from .. import audit
 from ..extensions import db
 from ..models import PersonalCategory, User
-from ..permissions import role_required
+from ..permissions import current_user, role_required
 
 bp = Blueprint("categories", __name__)
 
@@ -26,6 +27,13 @@ def create_category():
     cat = PersonalCategory(name=name, color=data.get("color") or "#909399")
     db.session.add(cat)
     db.session.commit()
+    audit.log(
+        "categories.create",
+        actor=current_user(),
+        target_type="category",
+        target_id=cat.id,
+        meta={"name": cat.name},
+    )
     return jsonify(cat.to_dict()), 201
 
 
@@ -39,6 +47,13 @@ def update_category(cat_id: int):
     if "color" in data:
         cat.color = data["color"] or cat.color
     db.session.commit()
+    audit.log(
+        "categories.update",
+        actor=current_user(),
+        target_type="category",
+        target_id=cat.id,
+        meta={"fields": list(data.keys())},
+    )
     return jsonify(cat.to_dict())
 
 
@@ -46,6 +61,14 @@ def update_category(cat_id: int):
 @role_required(User.ROLE_ADMIN)
 def delete_category(cat_id: int):
     cat = PersonalCategory.query.get_or_404(cat_id)
+    cat_name = cat.name
     db.session.delete(cat)
     db.session.commit()
+    audit.log(
+        "categories.delete",
+        actor=current_user(),
+        target_type="category",
+        target_id=cat_id,
+        meta={"name": cat_name},
+    )
     return jsonify(ok=True)
