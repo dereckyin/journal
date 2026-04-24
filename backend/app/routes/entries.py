@@ -4,12 +4,23 @@ from flask import Blueprint, jsonify, request
 
 from .. import audit
 from ..extensions import db
-from ..models import PersonalCategory, Project, TimeEntry, User
+from ..models import ChangeRequest, PersonalCategory, Project, TimeEntry, User
 from ..permissions import current_user, role_required
+from .change_requests import can_log_time_on_change_request
 
 bp = Blueprint("entries", __name__)
 
 EDIT_PAST_DAYS = 7  # employees can edit entries up to N days old
+
+
+def _norm_entry_id(val):
+    if val is None or val == "":
+        return None
+    try:
+        i = int(val)
+        return i if i > 0 else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _parse_dt(value: str) -> datetime:
@@ -48,6 +59,7 @@ def list_entries():
     user_id_param = request.args.get("user_id", type=int)
     project_id = request.args.get("project_id", type=int)
     category_id = request.args.get("category_id", type=int)
+    change_request_id = request.args.get("change_request_id", type=int)
     scope = request.args.get("scope")
 
     q = TimeEntry.query
@@ -60,6 +72,8 @@ def list_entries():
         q = q.filter(TimeEntry.project_id == project_id)
     if category_id:
         q = q.filter(TimeEntry.category_id == category_id)
+    if change_request_id:
+        q = q.filter(TimeEntry.change_request_id == change_request_id)
 
     if user.role == User.ROLE_EMPLOYEE:
         # 防禦性：employee 若試圖傳 user_id 而且不是自己，明確 403（不 silently 回傳自己的）
@@ -114,6 +128,7 @@ def list_entries():
                     "to": to_str,
                     "project_id": project_id,
                     "category_id": category_id,
+                    "change_request_id": change_request_id,
                     "count": len(entries),
                 },
             )
@@ -136,10 +151,14 @@ def create_entry():
     if end <= start:
         return jsonify(error="end_time must be after start_time"), 400
 
-    project_id = data.get("project_id")
-    category_id = data.get("category_id")
-    if bool(project_id) == bool(category_id):
-        return jsonify(error="exactly one of project_id or category_id required"), 400
+    project_id = _norm_entry_id(data.get("project_id"))
+    category_id = _norm_entry_id(data.get("category_id"))
+    change_request_id = _norm_entry_id(data.get("change_request_id"))
+    n_targets = sum(x is not None for x in (project_id, category_id, change_request_id))
+    if n_targets != 1:
+        return jsonify(
+            error="exactly one of project_id, category_id, change_request_id required"
+        ), 400
 
     title = (data.get("title") or "").strip()
     if not title:
@@ -164,6 +183,13 @@ def create_entry():
     if category_id:
         if not PersonalCategory.query.get(category_id):
             return jsonify(error="category not found"), 404
+    if change_request_id:
+        cr = ChangeRequest.query.get(change_request_id)
+        if not cr:
+            return jsonify(error="change request not found"), 404
+        target_u = User.query.get(target_user_id)
+        if not target_u or not can_log_time_on_change_request(target_u, cr):
+            return jsonify(error="forbidden: cannot log time on this change request"), 403
 
     overlap = _check_overlap(target_user_id, start, end)
     if overlap:
@@ -176,6 +202,7 @@ def create_entry():
         user_id=target_user_id,
         project_id=project_id,
         category_id=category_id,
+        change_request_id=change_request_id,
         title=title,
         description=data.get("description"),
         start_time=start,
@@ -193,6 +220,7 @@ def create_entry():
                 "for_user_id": target_user_id,
                 "project_id": project_id,
                 "category_id": category_id,
+                "change_request_id": change_request_id,
                 "start": start.isoformat(),
                 "end": end.isoformat(),
             },
@@ -226,15 +254,43 @@ def update_entry(entry_id: int):
     if new_end <= new_start:
         return jsonify(error="end_time must be after start_time"), 400
 
-    project_id = data.get("project_id", entry.project_id)
-    category_id = data.get("category_id", entry.category_id)
-    # if caller explicitly sets one side, clear the other
-    if "project_id" in data and data["project_id"]:
-        category_id = None
-    if "category_id" in data and data["category_id"]:
-        project_id = None
-    if bool(project_id) == bool(category_id):
-        return jsonify(error="exactly one of project_id or category_id required"), 400
+    project_id = entry.project_id
+    category_id = entry.category_id
+    change_request_id = entry.change_request_id
+
+    if "project_id" in data:
+        project_id = _norm_entry_id(data["project_id"])
+        if project_id:
+            category_id = None
+            change_request_id = None
+    if "category_id" in data:
+        category_id = _norm_entry_id(data["category_id"])
+        if category_id:
+            project_id = None
+            change_request_id = None
+    if "change_request_id" in data:
+        change_request_id = _norm_entry_id(data["change_request_id"])
+        if change_request_id:
+            project_id = None
+            category_id = None
+
+    n_targets = sum(x is not None for x in (project_id, category_id, change_request_id))
+    if n_targets != 1:
+        return jsonify(
+            error="exactly one of project_id, category_id, change_request_id required"
+        ), 400
+
+    if project_id and not Project.query.get(project_id):
+        return jsonify(error="project not found"), 404
+    if category_id and not PersonalCategory.query.get(category_id):
+        return jsonify(error="category not found"), 404
+    if change_request_id:
+        cr = ChangeRequest.query.get(change_request_id)
+        if not cr:
+            return jsonify(error="change request not found"), 404
+        owner = User.query.get(entry.user_id)
+        if not owner or not can_log_time_on_change_request(owner, cr):
+            return jsonify(error="forbidden: cannot log time on this change request"), 403
 
     overlap = _check_overlap(entry.user_id, new_start, new_end, exclude_id=entry.id)
     if overlap:
@@ -247,6 +303,7 @@ def update_entry(entry_id: int):
     entry.end_time = new_end
     entry.project_id = project_id
     entry.category_id = category_id
+    entry.change_request_id = change_request_id
     if "title" in data:
         entry.title = (data["title"] or "").strip() or entry.title
     if "description" in data:

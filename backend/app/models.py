@@ -72,6 +72,11 @@ class User(db.Model, TimestampMixin):
     entries = db.relationship(
         "TimeEntry", back_populates="user", cascade="all, delete-orphan"
     )
+    submitted_change_requests = db.relationship(
+        "ChangeRequest",
+        foreign_keys="ChangeRequest.requester_id",
+        back_populates="requester",
+    )
 
     __table_args__ = (
         CheckConstraint("role in ('employee','manager','admin')", name="ck_user_role"),
@@ -129,6 +134,11 @@ class Project(db.Model, TimestampMixin):
         cascade="all, delete-orphan",
     )
     entries = db.relationship("TimeEntry", back_populates="project")
+    change_requests = db.relationship(
+        "ChangeRequest",
+        back_populates="project",
+        foreign_keys="ChangeRequest.project_id",
+    )
 
     def to_dict(self, include_budget: bool = True) -> dict:
         data = {
@@ -174,15 +184,17 @@ class PersonalCategory(db.Model, TimestampMixin):
 
 class TitlePreset(db.Model, TimestampMixin):
     """工作紀錄標題的下拉預設。依 kind 區分：
-    - project  : 當 entry 綁定在專案時共用的預設清單
-    - category : 當 entry 綁定在個人類別時共用的預設清單
+    - project         : 當 entry 綁定在專案時共用的預設清單
+    - category        : 當 entry 綁定在個人類別時共用的預設清單
+    - change_request  : 當 entry 綁定在需求單時共用的預設清單
     """
 
     __tablename__ = "title_presets"
 
     KIND_PROJECT = "project"
     KIND_CATEGORY = "category"
-    KINDS = (KIND_PROJECT, KIND_CATEGORY)
+    KIND_CHANGE_REQUEST = "change_request"
+    KINDS = (KIND_PROJECT, KIND_CATEGORY, KIND_CHANGE_REQUEST)
 
     id = db.Column(db.Integer, primary_key=True)
     kind = db.Column(db.String(20), nullable=False, index=True)
@@ -191,7 +203,8 @@ class TitlePreset(db.Model, TimestampMixin):
 
     __table_args__ = (
         CheckConstraint(
-            "kind in ('project','category')", name="ck_title_preset_kind"
+            "kind in ('project','category','change_request')",
+            name="ck_title_preset_kind",
         ),
         UniqueConstraint("kind", "name", name="uq_title_preset_kind_name"),
     )
@@ -202,6 +215,97 @@ class TitlePreset(db.Model, TimestampMixin):
             "kind": self.kind,
             "name": self.name,
             "sort_order": self.sort_order,
+        }
+
+
+class ChangeRequest(db.Model, TimestampMixin):
+    __tablename__ = "change_requests"
+
+    STATUS_DRAFT = "draft"
+    STATUS_SUBMITTED = "submitted"
+    STATUS_APPROVED = "approved"
+    STATUS_REJECTED = "rejected"
+    STATUSES = (
+        STATUS_DRAFT,
+        STATUS_SUBMITTED,
+        STATUS_APPROVED,
+        STATUS_REJECTED,
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    title = db.Column(db.String(200), nullable=False)
+    description = db.Column(db.Text, nullable=True)
+    project_id = db.Column(
+        db.Integer, db.ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
+    requester_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    approver_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status = db.Column(db.String(20), nullable=False, default=STATUS_DRAFT)
+    submitted_at = db.Column(db.DateTime, nullable=True)
+    decided_at = db.Column(db.DateTime, nullable=True)
+    decided_by_id = db.Column(
+        db.Integer, db.ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    decision_note = db.Column(db.Text, nullable=True)
+
+    project = db.relationship(
+        "Project",
+        back_populates="change_requests",
+        foreign_keys=[project_id],
+    )
+    requester = db.relationship(
+        "User",
+        foreign_keys=[requester_id],
+        back_populates="submitted_change_requests",
+    )
+    approver = db.relationship("User", foreign_keys=[approver_id])
+    decided_by = db.relationship("User", foreign_keys=[decided_by_id])
+    entries = db.relationship(
+        "TimeEntry",
+        back_populates="change_request",
+        foreign_keys="TimeEntry.change_request_id",
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "status in ('draft','submitted','approved','rejected')",
+            name="ck_change_request_status",
+        ),
+    )
+
+    def effective_approver_id(self) -> int | None:
+        if self.approver_id:
+            return self.approver_id
+        req = self.requester
+        if req and req.department and req.department.manager_id:
+            return req.department.manager_id
+        return None
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "title": self.title,
+            "description": self.description,
+            "project_id": self.project_id,
+            "project_code": self.project.code if self.project else None,
+            "project_name": self.project.name if self.project else None,
+            "requester_id": self.requester_id,
+            "requester_name": self.requester.full_name if self.requester else None,
+            "approver_id": self.approver_id,
+            "approver_name": self.approver.full_name if self.approver else None,
+            "effective_approver_id": self.effective_approver_id(),
+            "status": self.status,
+            "submitted_at": self.submitted_at.isoformat() if self.submitted_at else None,
+            "decided_at": self.decided_at.isoformat() if self.decided_at else None,
+            "decided_by_id": self.decided_by_id,
+            "decided_by_name": self.decided_by.full_name if self.decided_by else None,
+            "decision_note": self.decision_note,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
 
 
@@ -220,6 +324,11 @@ class TimeEntry(db.Model, TimestampMixin):
         db.ForeignKey("personal_categories.id", ondelete="SET NULL"),
         nullable=True,
     )
+    change_request_id = db.Column(
+        db.Integer,
+        db.ForeignKey("change_requests.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
     title = db.Column(db.String(200), nullable=False)
     description = db.Column(db.Text, nullable=True)
     start_time = db.Column(db.DateTime, nullable=False, index=True)
@@ -228,12 +337,25 @@ class TimeEntry(db.Model, TimestampMixin):
     user = db.relationship("User", back_populates="entries")
     project = db.relationship("Project", back_populates="entries")
     category = db.relationship("PersonalCategory")
+    change_request = db.relationship(
+        "ChangeRequest",
+        back_populates="entries",
+        foreign_keys=[change_request_id],
+    )
 
     __table_args__ = (
         CheckConstraint(
-            "(project_id IS NOT NULL AND category_id IS NULL) OR "
-            "(project_id IS NULL AND category_id IS NOT NULL)",
-            name="ck_entry_project_xor_category",
+            "("
+            "project_id IS NOT NULL AND category_id IS NULL "
+            "AND change_request_id IS NULL"
+            ") OR ("
+            "project_id IS NULL AND category_id IS NOT NULL "
+            "AND change_request_id IS NULL"
+            ") OR ("
+            "project_id IS NULL AND category_id IS NULL "
+            "AND change_request_id IS NOT NULL"
+            ")",
+            name="ck_entry_project_category_cr_xor",
         ),
         CheckConstraint("end_time > start_time", name="ck_entry_time_range"),
     )
@@ -248,6 +370,12 @@ class TimeEntry(db.Model, TimestampMixin):
         return round(self.hours * float(rate), 2)
 
     def to_dict(self) -> dict:
+        cr = self.change_request
+        cr_color = None
+        if cr and cr.project:
+            cr_color = cr.project.color
+        elif cr:
+            cr_color = "#E6A23C"
         return {
             "id": self.id,
             "user_id": self.user_id,
@@ -258,6 +386,9 @@ class TimeEntry(db.Model, TimestampMixin):
             "category_id": self.category_id,
             "category_name": self.category.name if self.category else None,
             "category_color": self.category.color if self.category else None,
+            "change_request_id": self.change_request_id,
+            "change_request_title": cr.title if cr else None,
+            "change_request_color": cr_color,
             "title": self.title,
             "description": self.description,
             "start_time": self.start_time.isoformat(),

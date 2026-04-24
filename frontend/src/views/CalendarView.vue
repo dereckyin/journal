@@ -8,6 +8,7 @@ import { ElMessage } from "element-plus";
 
 import {
   categoriesApi,
+  changeRequestsApi,
   entriesApi,
   projectsApi,
   titlePresetsApi,
@@ -17,6 +18,7 @@ import EntryDialog from "../components/EntryDialog.vue";
 const calendarRef = ref(null);
 const projects = ref([]);
 const categories = ref([]);
+const changeRequests = ref([]);
 const titlePresets = ref([]);
 const dialogVisible = ref(false);
 const currentEntry = ref(null);
@@ -40,6 +42,8 @@ function buildTooltip(e) {
   const lines = [];
   lines.push(`📌 ${e.title || ""}`);
   if (e.project_name) lines.push(`📂 專案：${e.project_name}`);
+  else if (e.change_request_title)
+    lines.push(`📋 需求單：${e.change_request_title}`);
   else if (e.category_name) lines.push(`🏷 類別：${e.category_name}`);
   lines.push(`🕒 ${fmtRange(e.start_time, e.end_time)}（${e.hours ?? 0} h）`);
   if (e.description) lines.push(`📝 ${e.description}`);
@@ -93,8 +97,10 @@ async function fetchEvents(info, success, failure) {
         title: e.title,
         start: e.start_time,
         end: e.end_time,
-        backgroundColor: e.project_color || e.category_color || "#909399",
-        borderColor: e.project_color || e.category_color || "#909399",
+        backgroundColor:
+          e.project_color || e.change_request_color || e.category_color || "#909399",
+        borderColor:
+          e.project_color || e.change_request_color || e.category_color || "#909399",
         extendedProps: e,
       }))
     );
@@ -144,13 +150,15 @@ function toLocalIso(d) {
 
 onMounted(async () => {
   try {
-    const [ps, cs, tps] = await Promise.all([
+    const [ps, cs, crs, tps] = await Promise.all([
       projectsApi.list(),
       categoriesApi.list(),
+      changeRequestsApi.list({ scope: "loggable" }),
       titlePresetsApi.list(),
     ]);
     projects.value = ps.filter((p) => p.status === "active");
     categories.value = cs;
+    changeRequests.value = crs;
     titlePresets.value = tps;
   } catch (_) {}
 });
@@ -185,6 +193,7 @@ onMounted(async () => {
       :entry="currentEntry"
       :projects="projects"
       :categories="categories"
+      :change-requests="changeRequests"
       :title-presets="titlePresets"
       :default-start="defaultStart"
       :default-end="defaultEnd"

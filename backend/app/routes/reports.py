@@ -6,7 +6,14 @@ from sqlalchemy import func
 
 from .. import audit
 from ..extensions import db
-from ..models import Department, PersonalCategory, Project, TimeEntry, User
+from ..models import (
+    ChangeRequest,
+    Department,
+    PersonalCategory,
+    Project,
+    TimeEntry,
+    User,
+)
 from ..permissions import current_user, role_required
 
 bp = Blueprint("reports", __name__)
@@ -40,51 +47,73 @@ def project_cost():
         target_id=project_id,
         meta={"admin": is_admin},
     )
-    q = (
-        db.session.query(
-            Project.id,
-            Project.code,
-            Project.name,
-            Project.budget,
-            Project.color,
-            func.coalesce(
-                func.sum(
-                    (func.julianday(TimeEntry.end_time) - func.julianday(TimeEntry.start_time))
-                    * 24.0
-                ),
-                0.0,
-            ).label("hours"),
-            func.coalesce(
-                func.sum(
-                    (func.julianday(TimeEntry.end_time) - func.julianday(TimeEntry.start_time))
-                    * 24.0
-                    * User.hourly_rate
-                ),
-                0.0,
-            ).label("cost"),
-        )
-        .outerjoin(TimeEntry, TimeEntry.project_id == Project.id)
-        .outerjoin(User, User.id == TimeEntry.user_id)
-        .group_by(Project.id)
-    )
-    if project_id:
-        q = q.filter(Project.id == project_id)
 
-    rows = q.all()
+    h_expr = (
+        (func.julianday(TimeEntry.end_time) - func.julianday(TimeEntry.start_time))
+        * 24.0
+    )
+
+    direct = (
+        db.session.query(
+            TimeEntry.project_id.label("pid"),
+            func.coalesce(func.sum(h_expr), 0.0).label("hours"),
+            func.coalesce(func.sum(h_expr * User.hourly_rate), 0.0).label("cost"),
+        )
+        .select_from(TimeEntry)
+        .join(User, User.id == TimeEntry.user_id)
+        .filter(TimeEntry.project_id.isnot(None))
+        .group_by(TimeEntry.project_id)
+        .all()
+    )
+    via_cr = (
+        db.session.query(
+            ChangeRequest.project_id.label("pid"),
+            func.coalesce(func.sum(h_expr), 0.0).label("hours"),
+            func.coalesce(func.sum(h_expr * User.hourly_rate), 0.0).label("cost"),
+        )
+        .select_from(TimeEntry)
+        .join(ChangeRequest, TimeEntry.change_request_id == ChangeRequest.id)
+        .join(User, User.id == TimeEntry.user_id)
+        .filter(ChangeRequest.project_id.isnot(None))
+        .group_by(ChangeRequest.project_id)
+        .all()
+    )
+
+    merged: dict[int, dict] = {}
+    for row in direct:
+        if row.pid is None:
+            continue
+        merged[row.pid] = {
+            "hours": float(row.hours or 0),
+            "cost": float(row.cost or 0),
+        }
+    for row in via_cr:
+        if row.pid is None:
+            continue
+        m = merged.setdefault(row.pid, {"hours": 0.0, "cost": 0.0})
+        m["hours"] += float(row.hours or 0)
+        m["cost"] += float(row.cost or 0)
+
+    pq = Project.query
+    if project_id:
+        pq = pq.filter(Project.id == project_id)
+    projects = pq.order_by(Project.code.asc()).all()
+
     result = []
-    for r in rows:
-        budget = float(r.budget or 0)
-        cost = float(r.cost or 0)
+    for p in projects:
+        m = merged.get(p.id, {"hours": 0.0, "cost": 0.0})
+        budget = float(p.budget or 0)
+        cost = float(m["cost"])
+        hours = float(m["hours"])
         item = {
-            "project_id": r.id,
-            "code": r.code,
-            "name": r.name,
-            "color": r.color,
+            "project_id": p.id,
+            "code": p.code,
+            "name": p.name,
+            "color": p.color,
             "budget": budget,
-            "hours": round(float(r.hours or 0), 2),
+            "hours": round(hours, 2),
         }
         if is_admin:
-            # 薪資保密：僅 admin 可看到以時薪換算的實際成本
             item["cost"] = round(cost, 2)
             item["remaining"] = round(budget - cost, 2)
             item["utilization"] = (
@@ -195,7 +224,55 @@ def user_hours():
         for r in cat_rows
     ]
 
-    total_hours = sum(p["hours"] for p in projects) + sum(c["hours"] for c in categories)
+    cr_rows = (
+        db.session.query(
+            ChangeRequest.id,
+            ChangeRequest.title,
+            ChangeRequest.project_id,
+            Project.name.label("project_name"),
+            Project.color.label("project_color"),
+            func.sum(
+                (func.julianday(TimeEntry.end_time) - func.julianday(TimeEntry.start_time))
+                * 24.0
+            ).label("hours"),
+        )
+        .join(TimeEntry, TimeEntry.change_request_id == ChangeRequest.id)
+        .outerjoin(Project, ChangeRequest.project_id == Project.id)
+        .filter(
+            TimeEntry.user_id == target_id,
+            TimeEntry.start_time >= start,
+            TimeEntry.start_time <= end,
+        )
+        .group_by(
+            ChangeRequest.id,
+            ChangeRequest.title,
+            ChangeRequest.project_id,
+            Project.name,
+            Project.color,
+        )
+        .all()
+    )
+    change_requests = []
+    for r in cr_rows:
+        hours = round(float(r.hours or 0), 2)
+        color = r.project_color or "#E6A23C"
+        item = {
+            "change_request_id": r.id,
+            "title": r.title,
+            "project_id": r.project_id,
+            "project_name": r.project_name,
+            "color": color,
+            "hours": hours,
+        }
+        if is_admin:
+            item["cost"] = round(hours * rate, 2)
+        change_requests.append(item)
+
+    total_hours = (
+        sum(p["hours"] for p in projects)
+        + sum(c["hours"] for c in categories)
+        + sum(cr["hours"] for cr in change_requests)
+    )
     user_payload = {
         "id": target.id,
         "full_name": target.full_name,
@@ -206,13 +283,12 @@ def user_hours():
         "total_hours": round(total_hours, 2),
         "projects": projects,
         "categories": categories,
+        "change_requests": change_requests,
     }
     # 薪資保密：僅 admin 可看到時薪與月人力成本；員工 / 主管（含查詢自己）一律不回傳
     if is_admin:
         user_payload["hourly_rate"] = rate
-        payload["total_cost"] = round(
-            sum(p.get("cost", 0) for p in projects), 2
-        )
+        payload["total_cost"] = round(float(total_hours) * rate, 2)
     return jsonify(payload)
 
 

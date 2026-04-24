@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from . import create_app
 from .extensions import db
 from .models import (
+    ChangeRequest,
     Department,
     PersonalCategory,
     Project,
@@ -126,6 +127,7 @@ def seed() -> None:
         # Title presets — 工作紀錄標題的下拉預設
         project_titles = ["會議", "開發", "測試", "客戶溝通", "規劃", "文件"]
         category_titles = ["內部會議", "教育訓練", "行政事務", "請假", "出差"]
+        cr_titles = ["需求訪談", "規格撰寫", "審查回覆"]
         for i, n in enumerate(project_titles):
             db.session.add(
                 TitlePreset(kind=TitlePreset.KIND_PROJECT, name=n, sort_order=i)
@@ -134,6 +136,25 @@ def seed() -> None:
             db.session.add(
                 TitlePreset(kind=TitlePreset.KIND_CATEGORY, name=n, sort_order=i)
             )
+        for i, n in enumerate(cr_titles):
+            db.session.add(
+                TitlePreset(
+                    kind=TitlePreset.KIND_CHANGE_REQUEST, name=n, sort_order=i
+                )
+            )
+
+        cr_sample = ChangeRequest(
+            title="官網會員登入改版",
+            description="支援 SSO 與現有帳號整合",
+            project_id=proj_a.id,
+            requester_id=emp1.id,
+            status=ChangeRequest.STATUS_APPROVED,
+            submitted_at=datetime.utcnow(),
+            decided_at=datetime.utcnow(),
+            decided_by_id=manager1.id,
+        )
+        db.session.add(cr_sample)
+        db.session.flush()
 
         # Sample entries: this week, Mon 09-12 for emp1 on proj_a
         today = datetime.utcnow().date()
@@ -148,6 +169,14 @@ def seed() -> None:
                     title="首頁切版",
                     description="完成 hero section 與導覽列",
                     start_time=base + timedelta(hours=9),
+                    end_time=base + timedelta(hours=11),
+                ),
+                TimeEntry(
+                    user_id=emp1.id,
+                    change_request_id=cr_sample.id,
+                    title="登入流程盤點",
+                    description="盤點現有會員與權限",
+                    start_time=base + timedelta(hours=11),
                     end_time=base + timedelta(hours=12),
                 ),
                 TimeEntry(

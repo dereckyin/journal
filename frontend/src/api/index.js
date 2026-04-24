@@ -73,6 +73,24 @@ export const auditApi = {
     client.get("/audit-logs", { params }).then((r) => r.data),
 };
 
+export const changeRequestsApi = {
+  list: (params) =>
+    client.get("/change-requests", { params }).then((r) => r.data),
+  get: (id) => client.get(`/change-requests/${id}`).then((r) => r.data),
+  create: (payload) =>
+    client.post("/change-requests", payload).then((r) => r.data),
+  update: (id, payload) =>
+    client.patch(`/change-requests/${id}`, payload).then((r) => r.data),
+  submit: (id) =>
+    client.post(`/change-requests/${id}/submit`).then((r) => r.data),
+  approve: (id, payload) =>
+    client.post(`/change-requests/${id}/approve`, payload).then((r) => r.data),
+  reject: (id, payload) =>
+    client.post(`/change-requests/${id}/reject`, payload).then((r) => r.data),
+  remove: (id) =>
+    client.delete(`/change-requests/${id}`).then((r) => r.data),
+};
+
 export const titlePresetsApi = {
   list: (kind) =>
     client

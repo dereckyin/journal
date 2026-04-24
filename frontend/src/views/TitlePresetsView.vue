@@ -127,6 +127,7 @@ async function swapSortOrder(a, b) {
       <el-tabs v-model="activeKind">
         <el-tab-pane label="專案類型" name="project" />
         <el-tab-pane label="個人類別" name="category" />
+        <el-tab-pane label="需求單" name="change_request" />
       </el-tabs>
 
       <el-alert
@@ -138,11 +139,19 @@ async function swapSortOrder(a, b) {
         style="margin-bottom: 12px"
       />
       <el-alert
-        v-else
+        v-else-if="activeKind === 'category'"
         type="info"
         :closable="false"
         show-icon
         title="「工作紀錄」選『個人事項』類型時會顯示這組下拉。員工仍可自行輸入自訂標題。"
+        style="margin-bottom: 12px"
+      />
+      <el-alert
+        v-else
+        type="info"
+        :closable="false"
+        show-icon
+        title="「工作紀錄」選『需求單』類型時會顯示這組下拉。員工仍可自行輸入自訂標題。"
         style="margin-bottom: 12px"
       />
 
@@ -195,7 +204,13 @@ async function swapSortOrder(a, b) {
       <el-form label-width="70px">
         <el-form-item label="類型">
           <el-tag>
-            {{ activeKind === "project" ? "專案類型" : "個人類別" }}
+            {{
+              activeKind === "project"
+                ? "專案類型"
+                : activeKind === "category"
+                  ? "個人類別"
+                  : "需求單"
+            }}
           </el-tag>
         </el-form-item>
         <el-form-item label="名稱">

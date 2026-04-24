@@ -31,6 +31,7 @@ def create_app(config_class: type = Config) -> Flask:
     from .routes.reports import bp as reports_bp
     from .routes.audit import bp as audit_bp
     from .routes.title_presets import bp as title_presets_bp
+    from .routes.change_requests import bp as change_requests_bp
 
     app.register_blueprint(auth_bp, url_prefix="/api/auth")
     app.register_blueprint(users_bp, url_prefix="/api/users")
@@ -41,6 +42,7 @@ def create_app(config_class: type = Config) -> Flask:
     app.register_blueprint(reports_bp, url_prefix="/api/reports")
     app.register_blueprint(audit_bp, url_prefix="/api/audit-logs")
     app.register_blueprint(title_presets_bp, url_prefix="/api/title-presets")
+    app.register_blueprint(change_requests_bp, url_prefix="/api/change-requests")
 
     @app.get("/api/health")
     def health():

@@ -10,6 +10,7 @@ const menu = computed(() => {
   const items = [
     { index: "/calendar", label: "我的週曆", icon: "📅" },
     { index: "/reports", label: "報表", icon: "📊" },
+    { index: "/change-requests", label: "需求單", icon: "📋" },
   ];
   if (auth.isManager || auth.isAdmin) {
     items.splice(1, 0, {

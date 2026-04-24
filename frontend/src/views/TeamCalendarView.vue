@@ -38,6 +38,8 @@ function buildTooltip(e) {
   lines.push(`👤 ${e.user_name || "-"}`);
   lines.push(`📌 ${e.title || ""}`);
   if (e.project_name) lines.push(`📂 專案：${e.project_name}`);
+  else if (e.change_request_title)
+    lines.push(`📋 需求單：${e.change_request_title}`);
   else if (e.category_name) lines.push(`🏷 類別：${e.category_name}`);
   lines.push(`🕒 ${fmtRange(e.start_time, e.end_time)}（${e.hours ?? 0} h）`);
   if (e.description) lines.push(`📝 ${e.description}`);
@@ -86,8 +88,10 @@ async function fetchEvents(info, success, failure) {
         title: e.title,
         start: e.start_time,
         end: e.end_time,
-        backgroundColor: e.project_color || e.category_color || "#909399",
-        borderColor: e.project_color || e.category_color || "#909399",
+        backgroundColor:
+          e.project_color || e.change_request_color || e.category_color || "#909399",
+        borderColor:
+          e.project_color || e.change_request_color || e.category_color || "#909399",
         extendedProps: e,
       }))
     );

@@ -166,6 +166,13 @@ const userHoursPieOption = computed(() => {
       _kind: "category",
       _id: c.category_id,
     })),
+    ...(userHours.value.change_requests || []).map((cr) => ({
+      name: cr.title,
+      value: cr.hours,
+      itemStyle: { color: cr.color },
+      _kind: "change_request",
+      _id: cr.change_request_id,
+    })),
   ];
   return {
     title: {
@@ -258,10 +265,18 @@ function onUserHoursPieClick(params) {
   const reqParams = { user_id: uid, from, to };
   if (item._kind === "project") reqParams.project_id = item._id;
   if (item._kind === "category") reqParams.category_id = item._id;
+  if (item._kind === "change_request")
+    reqParams.change_request_id = item._id;
   const u = users.value.find((x) => x.id === uid) || auth.user;
+  const kindLabel =
+    item._kind === "project"
+      ? "專案"
+      : item._kind === "change_request"
+        ? "需求單"
+        : "類別";
   openDrillDown({
     title: `${u?.full_name || "-"} · ${item.name}`,
-    subtitle: `${month.value} 的 ${item._kind === "project" ? "專案" : "類別"}明細`,
+    subtitle: `${month.value} 的 ${kindLabel}明細`,
     params: reqParams,
     showUserColumn: false,
   });

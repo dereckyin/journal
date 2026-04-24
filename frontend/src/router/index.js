@@ -31,6 +31,11 @@ const routes = [
         component: () => import("../views/ReportsView.vue"),
       },
       {
+        path: "change-requests",
+        name: "change-requests",
+        component: () => import("../views/ChangeRequestsView.vue"),
+      },
+      {
         path: "admin/projects",
         name: "admin-projects",
         component: () => import("../views/ProjectsView.vue"),

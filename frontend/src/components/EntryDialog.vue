@@ -8,6 +8,7 @@ const props = defineProps({
   entry: { type: Object, default: null },
   projects: { type: Array, default: () => [] },
   categories: { type: Array, default: () => [] },
+  changeRequests: { type: Array, default: () => [] },
   titlePresets: { type: Array, default: () => [] },
   defaultStart: { type: [Date, String, null], default: null },
   defaultEnd: { type: [Date, String, null], default: null },
@@ -23,9 +24,10 @@ const form = reactive({
   id: null,
   title: "",
   description: "",
-  kind: "project", // "project" | "category"
+  kind: "project", // "project" | "category" | "change_request"
   project_id: null,
   category_id: null,
+  change_request_id: null,
   start_time: null,
   end_time: null,
 });
@@ -50,6 +52,10 @@ const suggestedTitle = computed(() => {
     const p = props.projects.find((x) => x.id === form.project_id);
     return p ? p.name : "";
   }
+  if (form.kind === "change_request") {
+    const cr = props.changeRequests.find((x) => x.id === form.change_request_id);
+    return cr ? cr.title : "";
+  }
   const c = props.categories.find((x) => x.id === form.category_id);
   return c ? c.name : "";
 });
@@ -66,7 +72,7 @@ function applySuggestion(force = false) {
 
 // 類型切換 / 專案 or 類別切換 → 嘗試自動帶入標題
 watch(
-  () => [form.kind, form.project_id, form.category_id],
+  () => [form.kind, form.project_id, form.category_id, form.change_request_id],
   () => {
     applySuggestion(false);
   }
@@ -105,10 +111,17 @@ watch(
         form.kind = "project";
         form.project_id = props.entry.project_id;
         form.category_id = null;
+        form.change_request_id = null;
+      } else if (props.entry.change_request_id) {
+        form.kind = "change_request";
+        form.change_request_id = props.entry.change_request_id;
+        form.project_id = null;
+        form.category_id = null;
       } else {
         form.kind = "category";
         form.category_id = props.entry.category_id;
         form.project_id = null;
+        form.change_request_id = null;
       }
       // 編輯時不自動蓋標題；但若標題恰好與目前選項同名，仍允許之後隨選單自動更新
       lastAutoTitle.value = form.title || "";
@@ -119,6 +132,7 @@ watch(
       form.kind = "project";
       form.project_id = props.projects[0]?.id || null;
       form.category_id = null;
+      form.change_request_id = null;
       form.start_time = props.defaultStart ? new Date(props.defaultStart) : null;
       form.end_time = props.defaultEnd ? new Date(props.defaultEnd) : null;
       lastAutoTitle.value = "";
@@ -148,6 +162,10 @@ async function save() {
     ElMessage.warning("請選擇個人類別");
     return;
   }
+  if (form.kind === "change_request" && !form.change_request_id) {
+    ElMessage.warning("請選擇需求單");
+    return;
+  }
 
   const startIso = toLocalIso(form.start_time);
   const endIso = toLocalIso(form.end_time);
@@ -163,6 +181,8 @@ async function save() {
     end_time: endIso,
     project_id: form.kind === "project" ? form.project_id : null,
     category_id: form.kind === "category" ? form.category_id : null,
+    change_request_id:
+      form.kind === "change_request" ? form.change_request_id : null,
   };
 
   loading.value = true;
@@ -217,6 +237,7 @@ async function remove() {
         <el-radio-group v-model="form.kind">
           <el-radio-button value="project">專案</el-radio-button>
           <el-radio-button value="category">個人事項</el-radio-button>
+          <el-radio-button value="change_request">需求單</el-radio-button>
         </el-radio-group>
       </el-form-item>
       <el-form-item v-if="form.kind === 'project'" label="專案">
@@ -234,7 +255,7 @@ async function remove() {
           />
         </el-select>
       </el-form-item>
-      <el-form-item v-else label="個人類別">
+      <el-form-item v-else-if="form.kind === 'category'" label="個人類別">
         <el-select
           v-model="form.category_id"
           placeholder="選擇類別"
@@ -245,6 +266,23 @@ async function remove() {
             :key="c.id"
             :label="c.name"
             :value="c.id"
+          />
+        </el-select>
+      </el-form-item>
+      <el-form-item v-else label="需求單">
+        <el-select
+          v-model="form.change_request_id"
+          placeholder="選擇已核准需求單"
+          style="width: 100%"
+          filterable
+        >
+          <el-option
+            v-for="cr in changeRequests"
+            :key="cr.id"
+            :label="
+              (cr.project_code ? `[${cr.project_code}] ` : '') + cr.title
+            "
+            :value="cr.id"
           />
         </el-select>
       </el-form-item>
